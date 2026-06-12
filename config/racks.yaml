@@ -1,0 +1,260 @@
+racks:
+- name: Rack 1
+  sections:
+  - name: A
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: B
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: C
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: D
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+- name: Rack 2
+  sections:
+  - name: A
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: B
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: C
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+- name: Rack 3
+  sections:
+  - name: A
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: B
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: C
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+- name: Rack 4
+  sections:
+  - name: A
+    rows:
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: B
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: C
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: D
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+- name: Rack 5
+  sections:
+  - name: A
+    rows:
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: B
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: C
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: D
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+- name: Rack 6
+  sections:
+  - name: A
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: B
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: C
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: D
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+- name: Rack 7
+  sections:
+  - name: A
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: B
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: C
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - name: D
+    rows:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+rules:
+  A:
+  - 1
+  - 2
+  - 3
+  A_overstock:
+  - 4
+  B:
+  - 4
+  - 5
+  C:
+  - 6
+  - 7
+  idle_flag_days: 60
+  idle_min_snapshots: 2
+  abc_a_pct: 0.8
+  abc_b_pct: 0.95
