@@ -1,29 +1,39 @@
-# Cutstock Rack Slotting Optimizer
+# Storage & Inventory Optimizer
 
-Monthly slotting review tool for the Andersen Windows cutstock storage area.
-Upload the monthly usage report and physical audit, get Stay/Move/Flag
-recommendations per item, a rack map, utilization heatmap, and a
-consolidation fit-check against the future layout.
+A guided Streamlit application for combining a physical rack audit with usage, updated safety stock, on-hand quantity, and standard cost data.
 
-## Setup (once)
-    pip install -r requirements.txt
+## What changed
 
-## Run the dashboard
-    streamlit run app.py
-Then upload both files in the sidebar.
+- Guided upload and validation workflow
+- Quantity-level keep and excess recommendations
+- P7 zero-usage, P8 active-overstock, and P9 safety-stock review groups
+- Separate Current State and New Layout views
+- Optional approved/final layout upload
+- Plain-English explanations and tooltips
+- Finance/removal review page that avoids treating review value as an automatic write-off
+- Complete implementation workbook export
+- Configurable retention multiplier, P8 thresholds, slotting tolerance, and New Layout capacity
 
-## Run the pipeline from the command line
-    python run_pipeline.py Usage_Data.XLS Cutstock_Physical_Audit.xlsx
+## Required files
 
-## Project structure
-    app.py              Streamlit dashboard
-    run_pipeline.py     command-line pipeline check
-    core/ingest.py      file parsing + cleaning (.xls and .xlsx)
-    core/classify.py    ABC classification + idle flagging
-    core/recommend.py   Stay/Move/Flag engine with target cells
-    core/layout.py      consolidation fit analysis (linear feet)
-    core/config.py      rack structure yaml generation
-    ui/rack_map.py      plotly rack visualizations
-    export.py           Excel export for the floor
-    config/racks.yaml   rack structure + slotting rules (auto-generated)
-    storage/snapshots/  saved monthly states (month-over-month diff, week 4)
+### Physical audit
+Expected columns include Rack / Area, Section, Row / Level, Cell / Position, Location Label, Item Number, Estimated Cell Usage, Rack Cell Width (ft), and Notes.
+
+### Usage and updated safety stock
+Expected columns include Item number, Item description, Yearly, Safety, Quantity, and Standard cost.
+
+## Run locally
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## Default decision policy
+
+- Retain up to 2x updated safety stock
+- P7: zero recorded yearly usage with excess stock/value
+- P8: active excess of at least 100 units by default
+- P9: smaller active excess below the P8 materiality threshold
+
+All thresholds are editable in the sidebar. Removal from the New Layout is a review recommendation; final disposition remains a separate approval decision.
