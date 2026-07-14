@@ -16,6 +16,7 @@ from core.relayout import assign_new_layout
 from core.decision import build_inventory_decisions, merge_slotting_actions, review_summary
 from ui.rack_map import recommendation_map, utilization_heatmap
 from ui.new_layout_map import build_new_layout_figure
+from ui.final_layout_map import build_front_facing_layout, layout_summary
 from export import build_export
 
 st.set_page_config(page_title="Storage & Inventory Optimizer", page_icon="📦", layout="wide")
@@ -49,6 +50,9 @@ with st.sidebar:
     cells9 = st.number_input("9-ft cells", min_value=0, value=int(FUTURE_LAYOUT["cells_9ft"]))
     row_tol = st.select_slider("Current-state slotting tolerance", options=[0, 1, 2], value=1,
                                format_func=lambda x: {0:"Strict",1:"Allow 1 row",2:"Allow 2 rows"}[x])
+    with st.expander("Approved capacity reference", expanded=False):
+        approved_current_capacity = st.number_input("Approved Current State capacity (LF)", min_value=0.0, value=2226.0, step=1.0)
+        use_approved_capacity = st.checkbox("Use approved capacity in presentation cards", value=True)
 
 if not audit_file or not usage_file:
     st.info("Start by uploading the physical audit, followed by the usage and updated safety-stock report.")
@@ -87,15 +91,18 @@ rsummary = review_summary(decisions)
 review_value = float(decisions["excess_value"].sum())
 p7_value = float(decisions.loc[decisions.review_group.str.startswith("P7"), "excess_value"].sum())
 future_cap = fit["future_capacity_ft"]
-reduction_pct = fit["reduction_ft"] / fit["current_capacity_ft"] * 100 if fit["current_capacity_ft"] else 0
+audited_current_cap = fit["current_capacity_ft"]
+presentation_current_cap = approved_current_capacity if use_approved_capacity else audited_current_cap
+presentation_reduction = presentation_current_cap - future_cap
+reduction_pct = presentation_reduction / presentation_current_cap * 100 if presentation_current_cap else 0
 
 st.subheader(analysis_name)
 st.markdown(f"""<div class="approval"><b>Decision summary:</b> The analysis retains up to {retention_multiplier:g}× updated safety stock, separates zero-usage and active excess, and tests retained inventory against the New Layout. Removal from the New Layout is a review recommendation—not an automatic write-off or disposal decision.</div>""", unsafe_allow_html=True)
 
 k1,k2,k3,k4,k5 = st.columns(5)
-k1.metric("Current capacity", f"{fit['current_capacity_ft']:,.0f} LF")
+k1.metric("Current State capacity", f"{presentation_current_cap:,.0f} LF")
 k2.metric("New Layout capacity", f"{future_cap:,.0f} LF")
-k3.metric("Capacity reduction", f"{fit['reduction_ft']:,.0f} LF", f"{reduction_pct:.1f}% less")
+k3.metric("Capacity reduction", f"{presentation_reduction:,.0f} LF", f"{reduction_pct:.1f}% less")
 k4.metric("Value under review", f"${review_value:,.0f}")
 k5.metric("P7 zero-usage review", f"${p7_value:,.0f}")
 
@@ -128,6 +135,9 @@ with nav[1]:
     missing_ss = usage[(usage.on_hand > 0) & (usage.safety_stock <= 0)]
     if len(missing_cost): st.warning(f"{len(missing_cost)} stocked items have no positive standard cost; review values may be understated.")
     if len(missing_ss): st.warning(f"{len(missing_ss)} stocked items have zero safety stock; the app routes active quantities to review rather than assuming they should be retained.")
+    capacity_gap = approved_current_capacity - audited_current_cap
+    if use_approved_capacity and abs(capacity_gap) >= 0.5:
+        st.info(f"Capacity reconciliation: the physical audit calculates {audited_current_cap:,.0f} LF, while the approved Current State reference is {approved_current_capacity:,.0f} LF ({capacity_gap:+,.0f} LF difference). Presentation cards use the approved reference.")
     with st.expander("Unknown and unmatched audit records", expanded=(unknown+unmatched)>0):
         st.dataframe(merged[merged.match_status.isin(["unknown","unmatched"])][[c for c in ["rack","cell_id","location_label","item_number","occupancy_share","notes","match_status"] if c in merged]], use_container_width=True)
     with st.expander("Usage items not found in the audit"):
@@ -151,22 +161,58 @@ with nav[2]:
 
 with nav[3]:
     st.subheader("Current State")
-    st.caption("The physical audit shown as it exists today. Colors identify keep, move, removal-review, unmatched, unknown, and empty cells.")
-    left,right = st.columns([2,1])
-    left.plotly_chart(recommendation_map(merged, recs), use_container_width=True)
-    right.plotly_chart(utilization_heatmap(merged, recs), use_container_width=True)
+    st.caption("Review one full-width map at a time. Select an individual rack for larger cells, labels, and utilization percentages.")
+    rack_options = ["All Racks"] + sorted(merged["rack"].dropna().astype(str).unique().tolist())
+    cc1, cc2 = st.columns([1, 1])
+    current_view = cc1.radio("View", ["Action Recommendations", "Utilization"], horizontal=True)
+    current_rack = cc2.selectbox("Rack", rack_options, key="current_rack")
+    from ui.rack_map import rack_summary
+    summary_source = merged if current_rack == "All Racks" else merged[merged["rack"].astype(str) == current_rack]
+    current_summary = rack_summary(summary_source, recs)
+    m1,m2,m3,m4,m5,m6 = st.columns(6)
+    m1.metric("Keep locations", current_summary["Keep"])
+    m2.metric("Move / Re-slot", current_summary["Move / Re-slot"])
+    m3.metric("Removal review", current_summary["Review for Removal"])
+    m4.metric("Unknown / unmatched", current_summary["Unknown / unmatched"])
+    m5.metric("Empty locations", current_summary["Empty"])
+    m6.metric("Average utilization", f"{current_summary['Average utilization']:.0%}")
+    if current_view == "Action Recommendations":
+        st.info("Green locations can remain, amber locations should be re-slotted, red X locations contain inventory under removal review, and purple/yellow locations require verification.")
+        st.plotly_chart(recommendation_map(merged, recs, current_rack), use_container_width=True)
+    else:
+        st.info("Darker red cells have higher physical utilization. Hover over a cell to review its items and current occupancy.")
+        st.plotly_chart(utilization_heatmap(merged, recs, current_rack), use_container_width=True)
 
 with nav[4]:
     st.subheader("New Layout")
-    st.caption("Use the generated proposal for analysis, or upload an approved final-layout workbook to display the reviewed state.")
+    st.caption("The approved-layout view mirrors a front-facing rack elevation: row 1 is the floor, each colored block is one pallet, and block width reflects the pallet share of its cell.")
     if final_layout_file:
         xl = pd.ExcelFile(final_layout_file, engine="openpyxl")
-        sheet = "Cell Layout" if "Cell Layout" in xl.sheet_names else xl.sheet_names[0]
-        final_df = pd.read_excel(final_layout_file, sheet_name=sheet, engine="openpyxl")
-        st.success(f"Displaying approved layout from '{sheet}'.")
-        st.dataframe(final_df, use_container_width=True, height=560, hide_index=True)
-        new_layout_export = final_df
+        pallet_sheet = "Pallet Layout" if "Pallet Layout" in xl.sheet_names else xl.sheet_names[0]
+        table_sheet = "Cell Layout" if "Cell Layout" in xl.sheet_names else pallet_sheet
+        pallet_df = pd.read_excel(final_layout_file, sheet_name=pallet_sheet, engine="openpyxl")
+        final_df = pd.read_excel(final_layout_file, sheet_name=table_sheet, engine="openpyxl")
+        st.success(f"Displaying approved New Layout from '{pallet_sheet}'.")
+        summary = layout_summary(pallet_df)
+        lm1,lm2,lm3,lm4,lm5 = st.columns(5)
+        lm1.metric("Items placed", summary["Items placed"])
+        lm2.metric("Pallets placed", summary["Pallets placed"])
+        lm3.metric("Sideways pallets", summary["Sideways pallets"])
+        lm4.metric("Review items", summary["Review items"])
+        lm5.metric("Occupied cells", summary["Occupied cells"])
+        rack_values = sorted(pallet_df["Rack"].dropna().astype(str).unique().tolist()) if "Rack" in pallet_df else []
+        lc1,lc2 = st.columns([1,1])
+        layout_rack = lc1.selectbox("Rack", ["All Racks"] + rack_values, key="layout_rack")
+        layout_view = lc2.radio("View", ["Front-Facing Pallet View", "Assignment Table"], horizontal=True)
+        if layout_view == "Front-Facing Pallet View":
+            st.plotly_chart(build_front_facing_layout(pallet_df, layout_rack), use_container_width=True)
+            st.caption("Dotted pallet marking = laid sideways. Heavy outline = manual verification required. Hover over any pallet for description, orientation, source location, and verification notes.")
+        else:
+            display_final = final_df.rename(columns={"Cell":"Cell", "Rack":"Rack", "Col":"Column", "Fill %":"Fill %", "Items":"Items", "Tiers":"Tier / Status"})
+            st.dataframe(display_final, use_container_width=True, height=580, hide_index=True)
+        new_layout_export = pallet_df
     else:
+        st.warning("No approved New Layout was uploaded. The view below is a generated proposal and should be physically reviewed before execution.")
         assign_df, new_cells = assign_new_layout(merged, recs)
         st.plotly_chart(build_new_layout_figure(assign_df, new_cells), use_container_width=True)
         c1,c2,c3 = st.columns(3)
