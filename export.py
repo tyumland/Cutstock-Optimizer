@@ -1,54 +1,47 @@
-"""
-Excel export for the Rack Slotting Optimizer.
-
-Produces a workbook the supervisor can print or work from on the floor:
-  Recommendations - full per-item table sorted by action priority
-  Move List       - just the moves, in execution order (targets first
-                    assigned = highest priority)
-  Flagged Items   - idle stock review list with dollar values
-  Needs Review    - unknown '?' cells and unmatched item numbers
-"""
-
+"""Comprehensive Excel export for analysis, implementation, and Finance review."""
 import io
 import pandas as pd
 
 
-def build_export(recs: pd.DataFrame, merged: pd.DataFrame,
-                 fit: dict | None = None) -> bytes:
+def build_export(decisions, recs, merged, fit, review_summary=None, new_layout=None):
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
-        cols = ["recommendation", "item_number", "description", "tier", "role",
-                "current_cell", "target_cell", "yearly_usage", "on_hand",
-                "dollar_value", "reason"]
-        full = recs.copy()
-        order = {"Flag": 0, "Move": 1, "Stay": 2}
-        full = full.sort_values(["recommendation", "yearly_usage"],
-                                key=lambda s: s.map(order) if s.name == "recommendation" else s,
-                                ascending=[True, False])
-        full[[c for c in cols if c in full.columns]].to_excel(
-            xl, sheet_name="Recommendations", index=False)
+        summary = pd.DataFrame([
+            {"Metric": "Current rack capacity (LF)", "Value": fit.get("current_capacity_ft")},
+            {"Metric": "New-layout capacity (LF)", "Value": fit.get("future_capacity_ft")},
+            {"Metric": "Capacity reduction (LF)", "Value": fit.get("reduction_ft")},
+            {"Metric": "Current occupied footprint (LF)", "Value": fit.get("occupied_ft")},
+            {"Metric": "Fits in new layout", "Value": fit.get("fits_after_idle")},
+            {"Metric": "Total inventory value under review", "Value": decisions["excess_value"].sum()},
+        ])
+        summary.to_excel(xl, sheet_name="Executive Summary", index=False)
+        if review_summary is not None:
+            review_summary.to_excel(xl, sheet_name="Executive Summary", index=False, startrow=len(summary) + 3)
 
-        moves = recs[recs["recommendation"] == "Move"]
-        moves[[c for c in cols if c in moves.columns]].to_excel(
-            xl, sheet_name="Move List", index=False)
+        preferred = ["item_number", "description", "tier", "yearly_usage", "safety_stock",
+                     "on_hand", "retention_ceiling", "recommended_keep_qty", "excess_qty",
+                     "standard_cost", "excess_value", "review_group", "quantity_action",
+                     "slotting_action", "current_locations", "suggested_locations", "decision_reason"]
+        decisions[[c for c in preferred if c in decisions]].to_excel(
+            xl, sheet_name="All Recommendations", index=False)
 
-        flags = recs[recs["recommendation"] == "Flag"].sort_values(
-            "dollar_value", ascending=False)
-        flags[[c for c in cols if c in flags.columns]].to_excel(
-            xl, sheet_name="Flagged Items", index=False)
+        for prefix, name in [("P7", "P7 Zero Usage"), ("P8", "P8 Active Overstock"),
+                             ("P9", "P9 Safety Stock Adj")]:
+            view = decisions[decisions["review_group"].str.startswith(prefix)]
+            view[[c for c in preferred if c in view]].to_excel(xl, sheet_name=name, index=False)
 
-        review_unknown = (merged[merged["match_status"] == "unknown"]
-                          [["cell_id", "location_label", "occupancy_share", "notes"]]
-                          .drop_duplicates())
-        review_unmatched = (merged[merged["match_status"] == "unmatched"]
-                            [["item_number", "cell_id", "location_label", "occupancy_share"]]
-                            .drop_duplicates())
-        review_unknown.to_excel(xl, sheet_name="Needs Review", index=False,
-                                startrow=1)
-        review_unmatched.to_excel(xl, sheet_name="Needs Review", index=False,
-                                  startrow=len(review_unknown) + 5)
+        moves = decisions[decisions["slotting_action"].str.contains("Move|Re-slot", case=False, na=False)]
+        moves[[c for c in preferred if c in moves]].to_excel(xl, sheet_name="Move List", index=False)
 
-        if fit:
-            pd.DataFrame([fit]).T.rename(columns={0: "value"}).to_excel(
-                xl, sheet_name="Layout Fit")
+        unknown = merged[merged["match_status"].isin(["unknown", "unmatched"])].copy()
+        unknown.to_excel(xl, sheet_name="Manual Review", index=False)
+        if new_layout is not None and len(new_layout):
+            new_layout.to_excel(xl, sheet_name="New Layout", index=False)
+
+        for ws in xl.book.worksheets:
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
+            for col in ws.columns:
+                width = min(max(len(str(c.value or "")) for c in col) + 2, 45)
+                ws.column_dimensions[col[0].column_letter].width = width
     return buf.getvalue()
