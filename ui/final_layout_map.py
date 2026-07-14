@@ -37,11 +37,23 @@ def build_front_facing_layout(df, selected_rack="All Racks"):
                 for _,p in cg.iterrows():
                     width=max(.08,.94*float(p.pct_cell)/100); x0=cursor; x1=min(x+.47,cursor+width); cursor=x1
                     tier=p.tier if p.tier in COLORS else ("HW" if "HARDWOOD" in str(p.description).upper() else "REVIEW")
-                    color=COLORS.get(tier,COLORS["REVIEW"]); verify_text = str(p.verify_reason).strip()
-                    review = (verify_text.lower() not in ("", "nan", "none")) or tier in ("REVIEW", "UNKNOWN")
-                    hover=(f"<b>{p.item_number}</b><br>{p.description}<br><br><b>New location:</b> {p.cell}<br><b>Tier / status:</b> {p.tier}<br><b>Cell share:</b> {p.pct_cell:.0f}%<br><b>Length:</b> {p.length_ft}<br><b>Orientation:</b> {p.orientation}<br><b>Current audit location:</b> {p.audit_location}"+(f"<br><b>Verify:</b> {p.verify_reason}" if review else "")+(f"<br>Notes: {p.audit_notes}" if str(p.audit_notes).lower()!="nan" else ""))
-                    fig.add_trace(go.Scatter(x=[(x0+x1)/2],y=[row],mode="markers+text",marker=dict(symbol="square",size=1,color=color,opacity=0),text=[p.item_number],textfont=dict(size=12 if len(racks)==1 else 8,color="white"),hovertext=[hover],hoverinfo="text",showlegend=False),row=1,col=idx)
+                    color=COLORS.get(tier,COLORS["REVIEW"])
+                    verify_text=str(p.verify_reason).strip()
+                    review=(verify_text.lower() not in ("", "nan", "none")) or tier in ("REVIEW","UNKNOWN")
+                    hover=(f"<b>{p.item_number}</b><br>{p.description}<br>Cell: {p.cell}<br>Tier: {p.tier}<br>Cell share: {p.pct_cell:.0f}%<br>Length: {p.length_ft}<br>Orientation: {p.orientation}<br>From: {p.audit_location}"+(f"<br><b>Verify:</b> {p.verify_reason}" if review else "")+(f"<br>Notes: {p.audit_notes}" if str(p.audit_notes).lower()!="nan" else ""))
+                    fig.add_trace(go.Scatter(x=[(x0+x1)/2],y=[row],mode="markers",marker=dict(symbol="square",size=8,color=color,opacity=0),hovertext=[hover],hoverinfo="text",showlegend=False),row=1,col=idx)
                     fig.add_shape(type="rect",x0=x0,x1=x1,y0=row-.38,y1=row+.38,line=dict(color="#111827" if review else "#475467",width=3 if review else 1),fillcolor=color,layer="below",row=1,col=idx)
+                    block_width=x1-x0
+                    label=str(p.item_number)
+                    if len(racks)==1:
+                        min_width=.12; font_size=11 if block_width>=.28 else 9
+                    else:
+                        min_width=.18; font_size=7
+                    if block_width>=min_width:
+                        if len(label)>8 and block_width<.34:
+                            split_at=(len(label)+1)//2
+                            label=label[:split_at]+"<br>"+label[split_at:]
+                        fig.add_annotation(x=(x0+x1)/2,y=row,text=label,showarrow=False,font=dict(size=font_size,color="white"),xanchor="center",yanchor="middle",align="center",row=1,col=idx)
                     if str(p.orientation).lower()=="sideways": fig.add_shape(type="line",x0=x0+.02,x1=x1-.02,y0=row-.33,y1=row+.33,line=dict(color="rgba(255,255,255,.65)",width=1,dash="dot"),row=1,col=idx)
         fig.update_xaxes(tickvals=list(xpos.values()),ticktext=cols,title_text="Column",range=[-.6,len(cols)-.4],showgrid=False,zeroline=False,row=1,col=idx)
     for c in range(1,len(racks)+1): fig.update_yaxes(range=[.45,max_row+.55],tickvals=list(range(1,max_row+1)),showgrid=False,zeroline=False,row=1,col=c)
