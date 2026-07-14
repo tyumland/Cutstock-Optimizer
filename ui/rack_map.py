@@ -1,157 +1,65 @@
-"""
-Rack map visualization for the Streamlit dashboard.
-
-Each rack drawn as a grid: sections across the x-axis, rows up the y-axis,
-row 1 (the floor) at the bottom - matching how the racks physically stand.
-
-Accessibility choices:
-  - Okabe-Ito colorblind-safe palette
-  - Flag cells use a square-x symbol so Flag vs Move is distinguishable
-    by shape, not just hue
-  - Text color flips black/white per cell background for contrast
-
-Hover on any cell shows every item inside: number, description, tier,
-recommendation, yearly picks, and dollar value.
-"""
-
+"""Readable current-state rack maps with rack filtering and full-width views."""
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-STATUS_COLORS = {
-    "Stay":      "#009E73",   # bluish green
-    "Move":      "#E69F00",   # orange
-    "Flag":      "#CC3311",   # vermillion + distinct symbol
-    "unmatched": "#F0E442",   # yellow - item not in usage report
-    "unknown":   "#9467bd",   # purple - unidentified stock
-    "empty":     "#E8E8E8",   # light gray - available space
-}
-# black text on light backgrounds, white on dark
-TEXT_COLORS = {
-    "Stay": "white", "Move": "black", "Flag": "white",
-    "unmatched": "black", "unknown": "white", "empty": "black",
-}
-STATUS_SYMBOLS = {s: ("square-x" if s == "Flag" else "square")
-                  for s in STATUS_COLORS}
-STATUS_PRIORITY = ["Flag", "Move", "Stay", "unmatched", "unknown", "empty"]
-LEGEND_LABELS = {"unmatched": "No usage record", "unknown": "Unknown stock",
-                 "empty": "Empty"}
+STATUS_COLORS = {"Stay":"#16866B","Move":"#E59D00","Flag":"#C83E2D","unmatched":"#F2D64B","unknown":"#7A5AA6","empty":"#E9EDF1"}
+TEXT_COLORS = {"Stay":"white","Move":"#172033","Flag":"white","unmatched":"#172033","unknown":"white","empty":"#667085"}
+STATUS_PRIORITY = ["Flag","Move","Stay","unmatched","unknown","empty"]
+LEGEND_LABELS = {"Stay":"Keep","Move":"Move / Re-slot","Flag":"Review for Removal","unmatched":"No Usage Record","unknown":"Unknown Stock","empty":"Empty"}
 
 
-def _cell_rollup(merged: pd.DataFrame, recs: pd.DataFrame) -> pd.DataFrame:
-    """One row per physical cell: worst-case status, mix counts, hover text."""
-    rec_map = (recs.set_index(["item_number", "current_cell"])["recommendation"]
-               .to_dict()) if len(recs) else {}
-
-    rows = []
-    for (rack, section, row_num, cell_id), grp in merged.groupby(
-            ["rack", "section", "row_num", "cell_id"]):
-        statuses, lines = [], []
-        occ_total = grp["occupancy"].max()
-        for _, r in grp.iterrows():
-            if r["match_status"] == "empty":
-                statuses.append("empty")
-                continue
-            if r["match_status"] in ("unknown", "unmatched"):
-                statuses.append(r["match_status"])
-                lines.append("&#9888; UNKNOWN STOCK" if r["match_status"] == "unknown"
-                             else f"{r['item_number']} - no usage record")
-                continue
-            status = rec_map.get((r["item_number"], cell_id), "Stay")
-            statuses.append(status)
-            desc = str(r.get("description", ""))[:34]
-            lines.append(
-                f"<b>{r['item_number']}</b> {desc}<br>"
-                f"&nbsp;&nbsp;Tier {r['tier']} | {status} | "
-                f"{int(r['yearly_usage'])}/yr | ${r['dollar_value']:,.0f}")
-
-        worst = next((s for s in STATUS_PRIORITY if s in statuses), "empty")
-        n_stay = statuses.count("Stay")
-        n_total = len([s for s in statuses if s != "empty"])
-        mix = (f" - {n_stay}/{n_total} items OK"
-               if worst in ("Move", "Flag") and n_stay else "")
-        rows.append({
-            "rack": rack, "section": section, "row_num": int(row_num),
-            "cell_id": cell_id, "status": worst,
-            "occupancy": min(float(occ_total), 1.0),
-            "hover": (f"<b>{cell_id}</b> ({occ_total:.0%} full){mix}<br>"
-                      + ("<br>".join(lines) or "Empty - available space")),
-        })
+def cell_rollup(merged: pd.DataFrame, recs: pd.DataFrame) -> pd.DataFrame:
+    rec_map = recs.set_index(["item_number","current_cell"])["recommendation"].to_dict() if len(recs) else {}
+    rows=[]
+    for (rack,section,row_num,cell_id),grp in merged.groupby(["rack","section","row_num","cell_id"]):
+        statuses=[]; lines=[]
+        occ=float(pd.to_numeric(grp.get("occupancy",0), errors="coerce").fillna(0).max())
+        for _,r in grp.iterrows():
+            ms=r.get("match_status","matched")
+            if ms=="empty": statuses.append("empty"); continue
+            if ms in ("unknown","unmatched"):
+                statuses.append(ms); lines.append("Unknown stock - verify" if ms=="unknown" else f"{r.get('item_number','')} - no usage record"); continue
+            status=rec_map.get((r.get("item_number"),cell_id),"Stay"); statuses.append(status)
+            lines.append(f"<b>{r.get('item_number','')}</b> {str(r.get('description',''))[:38]}<br>Tier {r.get('tier','')} | {LEGEND_LABELS.get(status,status)} | {float(r.get('yearly_usage',0)):,.0f}/yr")
+        worst=next((s for s in STATUS_PRIORITY if s in statuses),"empty")
+        rows.append({"rack":rack,"section":str(section),"row_num":int(row_num),"cell_id":cell_id,"status":worst,"occupancy":min(max(occ,0),1),"hover":f"<b>{cell_id}</b> - {occ:.0%} utilized<br>"+("<br>".join(lines) or "Empty - available space")})
     return pd.DataFrame(rows)
 
 
-def build_rack_figure(merged: pd.DataFrame, recs: pd.DataFrame,
-                      mode: str = "recommendations") -> go.Figure:
-    cells = _cell_rollup(merged, recs)
-    racks = sorted(cells["rack"].unique())
+def rack_summary(merged, recs):
+    cells=cell_rollup(merged,recs)
+    return {"Keep":int((cells.status=="Stay").sum()),"Move / Re-slot":int((cells.status=="Move").sum()),"Review for Removal":int((cells.status=="Flag").sum()),"Unknown / unmatched":int(cells.status.isin(["unknown","unmatched"]).sum()),"Empty":int((cells.status=="empty").sum()),"Average utilization":float(cells.occupancy.mean()) if len(cells) else 0}
 
-    fig = make_subplots(rows=1, cols=len(racks), subplot_titles=racks,
-                        shared_yaxes=True, horizontal_spacing=0.02)
-    max_row = int(cells["row_num"].max())
 
-    for i, rack in enumerate(racks, start=1):
-        sub = cells[cells["rack"] == rack]
-        sections = sorted(sub["section"].unique())
-        sec_x = {s: j for j, s in enumerate(sections)}
-
-        if mode == "utilization":
-            colors = sub["occupancy"].apply(
-                lambda v: f"rgba(204,51,17,{0.12 + 0.88 * v:.2f})")
-            text_colors = sub["occupancy"].apply(
-                lambda v: "white" if v > 0.55 else "black")
-            symbols = "square"
-            cell_text = sub["occupancy"].apply(lambda v: f"{v:.0%}")
+def build_rack_figure(merged, recs, mode="recommendations", selected_rack="All Racks"):
+    cells=cell_rollup(merged,recs)
+    if selected_rack!="All Racks": cells=cells[cells.rack==selected_rack]
+    racks=sorted(cells.rack.unique())
+    if not racks: return go.Figure()
+    ncols=len(racks)
+    widths=[cells[cells.rack==r].section.nunique() for r in racks]; widths=[w/sum(widths) for w in widths]
+    fig=make_subplots(rows=1,cols=ncols,subplot_titles=racks,column_widths=widths,shared_yaxes=True,horizontal_spacing=.025)
+    max_row=int(cells.row_num.max())
+    marker_size=58 if ncols==1 else (44 if ncols<=3 else 34)
+    text_size=13 if ncols==1 else (10 if ncols<=3 else 8)
+    for i,rack in enumerate(racks,1):
+        sub=cells[cells.rack==rack].copy(); sections=sorted(sub.section.unique()); sec_x={s:j for j,s in enumerate(sections)}
+        if mode=="utilization":
+            colors=sub.occupancy.apply(lambda v:f"rgba(206,52,35,{.10+.90*v:.2f})"); text_colors=sub.occupancy.apply(lambda v:"white" if v>.55 else "#172033"); text=sub.occupancy.map(lambda v:f"{v:.0%}"); symbols="square"
         else:
-            colors = sub["status"].map(STATUS_COLORS)
-            text_colors = sub["status"].map(TEXT_COLORS)
-            symbols = sub["status"].map(STATUS_SYMBOLS)
-            cell_text = sub["section"] + sub["row_num"].astype(str)
-
-        fig.add_trace(go.Scatter(
-            x=sub["section"].map(sec_x), y=sub["row_num"],
-            mode="markers+text",
-            marker=dict(symbol=symbols, size=36, color=colors,
-                        line=dict(width=1, color="#555555")),
-            text=cell_text,
-            textfont=dict(size=9, color=list(text_colors)),
-            hovertext=sub["hover"], hoverinfo="text",
-            showlegend=False,
-        ), row=1, col=i)
-
-        fig.update_xaxes(tickvals=list(sec_x.values()), ticktext=sections,
-                         row=1, col=i, showgrid=False, zeroline=False)
-
-    for c in range(1, len(racks) + 1):
-        fig.update_yaxes(range=[0.4, max_row + 0.6], autorange=False,
-                         tickvals=list(range(1, max_row + 1)),
-                         showgrid=False, zeroline=False, row=1, col=c)
-    fig.update_yaxes(title_text="Row (1 = floor)", row=1, col=1)
-
-    if mode == "recommendations":
-        for status in ["Stay", "Move", "Flag", "unmatched", "unknown", "empty"]:
-            fig.add_trace(go.Scatter(
-                x=[None], y=[None], mode="markers",
-                marker=dict(symbol=STATUS_SYMBOLS[status], size=12,
-                            color=STATUS_COLORS[status],
-                            line=dict(width=1, color="#555555")),
-                name=LEGEND_LABELS.get(status, status), showlegend=True))
-
-    fig.update_layout(
-        height=430, margin=dict(l=50, r=10, t=55, b=30),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.18),
-        plot_bgcolor="white",
-        hoverlabel=dict(bgcolor="white", font_size=12, align="left"),
-    )
+            colors=sub.status.map(STATUS_COLORS); text_colors=sub.status.map(TEXT_COLORS); text=sub.section+sub.row_num.astype(str); symbols=sub.status.map(lambda s:"square-x" if s=="Flag" else "square")
+        fig.add_trace(go.Scatter(x=sub.section.map(sec_x),y=sub.row_num,mode="markers+text",marker=dict(symbol=symbols,size=marker_size,color=colors,line=dict(width=1.2,color="#475467")),text=text,textfont=dict(size=text_size,color=list(text_colors)),hovertext=sub.hover,hoverinfo="text",showlegend=False),row=1,col=i)
+        fig.update_xaxes(tickvals=list(sec_x.values()),ticktext=sections,title_text="Section",showgrid=False,zeroline=False,row=1,col=i)
+    for c in range(1,ncols+1): fig.update_yaxes(range=[.35,max_row+.65],tickvals=list(range(1,max_row+1)),showgrid=False,zeroline=False,row=1,col=c)
+    fig.update_yaxes(title_text="Row (1 = floor)",row=1,col=1)
+    if mode=="recommendations":
+        for s in STATUS_PRIORITY:
+            fig.add_trace(go.Scatter(x=[None],y=[None],mode="markers",marker=dict(symbol="square-x" if s=="Flag" else "square",size=12,color=STATUS_COLORS[s],line=dict(width=1,color="#475467")),name=LEGEND_LABELS[s],showlegend=True))
+    height=610 if ncols==1 else 500
+    fig.update_layout(height=height,margin=dict(l=55,r=20,t=65,b=80),legend=dict(orientation="h",yanchor="top",y=-.12,x=.5,xanchor="center"),plot_bgcolor="white",paper_bgcolor="white",font=dict(color="#172033"),hoverlabel=dict(bgcolor="white",font_size=12,align="left"))
     return fig
 
 
-# ---- API expected by app.py ----------------------------------------
-
-def recommendation_map(merged, recs):
-    """Rack map colored by recommendation status."""
-    return build_rack_figure(merged, recs, mode="recommendations")
-
-
-def utilization_heatmap(merged, recs):
-    """Rack map shaded by cell occupancy."""
-    return build_rack_figure(merged, recs, mode="utilization")
+def recommendation_map(merged,recs,selected_rack="All Racks"): return build_rack_figure(merged,recs,"recommendations",selected_rack)
+def utilization_heatmap(merged,recs,selected_rack="All Racks"): return build_rack_figure(merged,recs,"utilization",selected_rack)
