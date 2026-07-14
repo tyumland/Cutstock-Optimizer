@@ -17,7 +17,7 @@ def _norm(df):
     return d[d.row>0]
 
 def layout_summary(df):
-    d=_norm(df); return {"Items placed":int(d.item_number.nunique()),"Pallets placed":int(len(d)),"Sideways pallets":int(d.orientation.astype(str).str.lower().eq("sideways").sum()),"Review items":int(d.tier.isin(["REVIEW","UNKNOWN"]).sum()),"Occupied cells":int(d.cell.nunique())}
+    d=_norm(df); return {"Items placed":int(d.item_number.nunique()),"Pallets placed":int(len(d)),"Sideways pallets":int(d.orientation.astype(str).str.lower().eq("sideways").sum()),"Review items":int(d.loc[d.tier.isin(["REVIEW","UNKNOWN"]), "item_number"].nunique()),"Occupied cells":int(d.cell.nunique())}
 
 def build_front_facing_layout(df, selected_rack="All Racks"):
     d=_norm(df)
@@ -31,16 +31,17 @@ def build_front_facing_layout(df, selected_rack="All Racks"):
         rd=d[d.rack==rack]; cols=sorted(rd.col.unique()); xpos={c:i for i,c in enumerate(cols)}
         for row in range(1,max_row+1):
             for col in cols:
-                x=xpos[col]; fig.add_shape(type="rect",x0=x-.48,x1=x+.48,y0=row-.42,y1=row+.42,line=dict(color="#667085",width=1),fillcolor="#F2F4F7",row=1,col=idx)
+                x=xpos[col]; fig.add_shape(type="rect",x0=x-.48,x1=x+.48,y0=row-.42,y1=row+.42,line=dict(color="#667085",width=1),fillcolor="#F2F4F7",layer="below",row=1,col=idx)
                 cg=rd[(rd.col==col)&(rd.row==row)]
                 cursor=x-.47
                 for _,p in cg.iterrows():
                     width=max(.08,.94*float(p.pct_cell)/100); x0=cursor; x1=min(x+.47,cursor+width); cursor=x1
                     tier=p.tier if p.tier in COLORS else ("HW" if "HARDWOOD" in str(p.description).upper() else "REVIEW")
-                    color=COLORS.get(tier,COLORS["REVIEW"]); review=bool(str(p.verify_reason).strip() and str(p.verify_reason).lower()!="nan") or tier in ("REVIEW","UNKNOWN")
-                    hover=(f"<b>{p.item_number}</b><br>{p.description}<br>Cell: {p.cell}<br>Tier: {p.tier}<br>Cell share: {p.pct_cell:.0f}%<br>Length: {p.length_ft}<br>Orientation: {p.orientation}<br>From: {p.audit_location}"+(f"<br><b>Verify:</b> {p.verify_reason}" if review else "")+(f"<br>Notes: {p.audit_notes}" if str(p.audit_notes).lower()!="nan" else ""))
-                    fig.add_trace(go.Scatter(x=[(x0+x1)/2],y=[row],mode="markers+text",marker=dict(symbol="square",size=1,color=color,opacity=0),text=[p.item_number],textfont=dict(size=11 if len(racks)==1 else 7,color="white"),hovertext=[hover],hoverinfo="text",showlegend=False),row=1,col=idx)
-                    fig.add_shape(type="rect",x0=x0,x1=x1,y0=row-.38,y1=row+.38,line=dict(color="#111827" if review else "#475467",width=3 if review else 1),fillcolor=color,row=1,col=idx)
+                    color=COLORS.get(tier,COLORS["REVIEW"]); verify_text = str(p.verify_reason).strip()
+                    review = (verify_text.lower() not in ("", "nan", "none")) or tier in ("REVIEW", "UNKNOWN")
+                    hover=(f"<b>{p.item_number}</b><br>{p.description}<br><br><b>New location:</b> {p.cell}<br><b>Tier / status:</b> {p.tier}<br><b>Cell share:</b> {p.pct_cell:.0f}%<br><b>Length:</b> {p.length_ft}<br><b>Orientation:</b> {p.orientation}<br><b>Current audit location:</b> {p.audit_location}"+(f"<br><b>Verify:</b> {p.verify_reason}" if review else "")+(f"<br>Notes: {p.audit_notes}" if str(p.audit_notes).lower()!="nan" else ""))
+                    fig.add_trace(go.Scatter(x=[(x0+x1)/2],y=[row],mode="markers+text",marker=dict(symbol="square",size=1,color=color,opacity=0),text=[p.item_number],textfont=dict(size=12 if len(racks)==1 else 8,color="white"),hovertext=[hover],hoverinfo="text",showlegend=False),row=1,col=idx)
+                    fig.add_shape(type="rect",x0=x0,x1=x1,y0=row-.38,y1=row+.38,line=dict(color="#111827" if review else "#475467",width=3 if review else 1),fillcolor=color,layer="below",row=1,col=idx)
                     if str(p.orientation).lower()=="sideways": fig.add_shape(type="line",x0=x0+.02,x1=x1-.02,y0=row-.33,y1=row+.33,line=dict(color="rgba(255,255,255,.65)",width=1,dash="dot"),row=1,col=idx)
         fig.update_xaxes(tickvals=list(xpos.values()),ticktext=cols,title_text="Column",range=[-.6,len(cols)-.4],showgrid=False,zeroline=False,row=1,col=idx)
     for c in range(1,len(racks)+1): fig.update_yaxes(range=[.45,max_row+.55],tickvals=list(range(1,max_row+1)),showgrid=False,zeroline=False,row=1,col=c)
